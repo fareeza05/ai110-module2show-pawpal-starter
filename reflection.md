@@ -2,6 +2,11 @@
 
 ## 1. System Design
 
+The 3 core actions a user should be able to perform:
+1. Add their personal information along with their pet’s information & constraints for both them and their pet (e.g - availability, age of pet, medical information) + choose what facet of their pet care they’d like to improve, if any.
+2. User should be able to prompt the application to generate a pet care plan based on their information. 
+3. User should be able to clearly view their plan and adjust the given plan by adding their own tasks or editing any existing ones to better fit their needs.
+
 **a. Initial design**
 
 - Briefly describe your initial UML design.
