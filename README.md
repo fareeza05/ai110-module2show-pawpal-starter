@@ -38,6 +38,33 @@ When a task is marked complete via `Pet.complete_task()`, the original task is m
 **Conflict detection**
 `Scheduler.detect_conflicts()` scans all tasks across all pets and returns human-readable warning strings for any time-window overlaps — for example, a 30-minute walk and a medication both scheduled at 7:00 AM. It distinguishes same-pet conflicts from cross-pet conflicts, uses an early-exit `break` for efficiency, and never raises an exception.
 
+## Testing PawPal+
+
+### Run the tests
+
+```bash
+python -m pytest tests/test_pawpal.py -v
+```
+
+### What the tests cover
+
+| Area | Tests | What is verified |
+|---|---|---|
+| Core behavior | 2 | Task completion flips status; adding a task increases the pet's task count |
+| Sorting | 2 | Tasks added out of order are returned chronologically by a single pet and across multiple pets |
+| Recurrence | 3 | Completing a daily task creates a next-day instance; weekly creates a +7-day instance; the new task inherits time and duration |
+| Conflict detection | 5 | No false positives on non-overlapping tasks; same-pet overlaps flagged correctly; cross-pet overlaps flagged correctly; three-way overlaps produce three warnings; adjacent (back-to-back) tasks are not flagged |
+
+**Total: 12 tests, 0 failures**
+
+### Confidence level
+
+★★★★☆ (4/5)
+
+The core behaviors — task management, sorting, recurrence, and conflict detection — are well covered and all pass. The rating is not a 5 because the following edge cases are not yet tested: tasks that span midnight, an owner with no pets, conflicting tasks that are both already completed, and the Streamlit UI layer (which has no automated tests at all).
+
+---
+
 ## Getting started
 
 ### Setup
