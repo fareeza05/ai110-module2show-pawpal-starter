@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, time, timedelta
 from enum import Enum
 
 
@@ -17,26 +17,52 @@ class Frequency(Enum):
 
 @dataclass
 class Task:
-    """A single care activity assigned to a pet with a frequency and due date."""
+    """A single care activity assigned to a pet with a frequency, time, and duration."""
 
     title: str
     description: str
     frequency: Frequency
     due_date: date = field(default_factory=date.today)
+    time_of_day: time = field(default_factory=lambda: time(8, 0))
+    duration_minutes: int = 30
     is_completed: bool = False
 
-    def check_off(self):
-        """Mark this task as completed."""
+    def check_off(self) -> Task:
+        """Mark this task as completed and return a new Task instance for the next occurrence."""
         self.is_completed = True
+        return Task(
+            title=self.title,
+            description=self.description,
+            frequency=self.frequency,
+            due_date=self.next_due(),
+            time_of_day=self.time_of_day,
+            duration_minutes=self.duration_minutes,
+            is_completed=False,
+        )
 
     def is_due_today(self) -> bool:
         """Return True if this task is due today."""
         return self.due_date == date.today()
 
+    def next_due(self) -> date:
+        """Return the next due date based on frequency."""
+        if self.frequency == Frequency.DAILY:
+            return self.due_date + timedelta(days=1)
+        return self.due_date + timedelta(weeks=1)
+
+    def reset_for_next_cycle(self):
+        """Uncheck the task and advance its due date to the next occurrence."""
+        self.is_completed = False
+        self.due_date = self.next_due()
+
     def __str__(self) -> str:
         """Return a formatted one-line summary of the task."""
         status = "✓" if self.is_completed else "○"
-        return f"[{status}] {self.title} ({self.frequency.value}) — due {self.due_date}"
+        return (
+            f"[{status}] {self.title} ({self.frequency.value}) "
+            f"@ {self.time_of_day.strftime('%I:%M %p')} "
+            f"[{self.duration_minutes}min] — due {self.due_date}"
+        )
 
 
 @dataclass
@@ -54,15 +80,19 @@ class Pet:
         """Append a task to this pet's task list."""
         self.tasks.append(task)
 
+    def complete_task(self, task: Task):
+        """Mark a task complete and automatically append its next occurrence to the list."""
+        next_task = task.check_off()
+        self.tasks.append(next_task)
+
     def remove_task(self, task: Task):
         """Remove a task from this pet's task list."""
         self.tasks.remove(task)
 
     def get_tasks(self, frequency: Frequency = None) -> list[Task]:
-        """Return all tasks, optionally filtered by frequency."""
-        if frequency:
-            return [t for t in self.tasks if t.frequency == frequency]
-        return list(self.tasks)
+        """Return all tasks sorted by time_of_day, optionally filtered by frequency."""
+        tasks = self.tasks if not frequency else [t for t in self.tasks if t.frequency == frequency]
+        return sorted(tasks, key=lambda t: t.time_of_day)
 
     def add_info(self, health_issues: list[str] = None, focus_areas: list[str] = None):
         """Append health issues and focus areas to this pet's profile."""
@@ -83,7 +113,12 @@ class Scheduler:
     plan: str = ""
 
     def generate_plan(self, owner: Owner) -> str:
-        """Build and store a formatted care plan from the owner's pets and availability."""
+        """Build a care plan sorted by time, and advance any completed recurring tasks."""
+        for pet in owner.pets:
+            for task in pet.tasks:
+                if task.is_completed:
+                    task.reset_for_next_cycle()
+
         lines = [f"Care plan for {owner.first_name}'s pets | Availability: {owner.availability}\n"]
         for pet in owner.pets:
             lines.append(f"  {pet}")
@@ -91,8 +126,9 @@ class Scheduler:
                 lines.append(f"    Focus: {', '.join(pet.focus_areas)}")
             if pet.prior_health_issues:
                 lines.append(f"    Health notes: {', '.join(pet.prior_health_issues)}")
-            for task in pet.tasks:
+            for task in pet.get_tasks():  # already sorted by time_of_day
                 lines.append(f"    {task}")
+
         self.plan = "\n".join(lines)
         return self.plan
 
@@ -100,9 +136,65 @@ class Scheduler:
         """Replace the current plan with a manually updated version."""
         self.plan = updated_plan
 
-    def view_tasks(self, owner: Owner, frequency: Frequency) -> list[Task]:
-        """Return all tasks across the owner's pets filtered by frequency."""
-        return owner.get_all_tasks(frequency)
+    def view_tasks(
+        self,
+        owner: Owner,
+        frequency: Frequency = None,
+        pet: Pet = None,
+        completed: bool = None,
+    ) -> list[Task]:
+        """Return tasks filtered by frequency, pet, and/or completion status, sorted by time."""
+        tasks = owner.get_all_tasks(frequency)
+        if pet is not None:
+            tasks = [t for t in tasks if t in pet.tasks]
+        if completed is not None:
+            tasks = [t for t in tasks if t.is_completed == completed]
+        return sorted(tasks, key=lambda t: t.time_of_day)
+
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Return tasks sorted by time_of_day using a lambda key on the HH:MM string."""
+        return sorted(tasks, key=lambda t: t.time_of_day.strftime("%H:%M"))
+
+    def filter_tasks_for_owner(
+        self,
+        owner: Owner,
+        pet_name: str = None,
+        completed: bool = None,
+    ) -> list[Task]:
+        """Return tasks across all pets, filtered by pet name and/or completion status."""
+        results = []
+        for pet in owner.pets:
+            if pet_name is not None and pet.name.lower() != pet_name.lower():
+                continue
+            for task in pet.tasks:
+                if completed is not None and task.is_completed != completed:
+                    continue
+                results.append(task)
+        return self.sort_by_time(results)
+
+    def detect_conflicts(self, owner: Owner) -> list[str]:
+        """Return warning strings for any overlapping tasks across all pets; never raises."""
+        warnings = []
+        # Build a flat list of (task, pet) pairs sorted by start time
+        tagged = sorted(
+            [(task, pet) for pet in owner.pets for task in pet.tasks],
+            key=lambda tp: tp[0].time_of_day,
+        )
+        for i, (a, pet_a) in enumerate(tagged):
+            for b, pet_b in tagged[i + 1:]:
+                a_start = a.time_of_day.hour * 60 + a.time_of_day.minute
+                a_end   = a_start + a.duration_minutes
+                b_start = b.time_of_day.hour * 60 + b.time_of_day.minute
+                if b_start >= a_end:
+                    break  # sorted — no further overlaps possible with a
+                scope = "same pet" if pet_a is pet_b else "different pets"
+                warnings.append(
+                    f"⚠ CONFLICT ({scope}): '{a.title}' ({pet_a.name}) "
+                    f"@ {a.time_of_day.strftime('%I:%M %p')} [{a.duration_minutes}min] "
+                    f"overlaps '{b.title}' ({pet_b.name}) "
+                    f"@ {b.time_of_day.strftime('%I:%M %p')}"
+                )
+        return warnings
 
     def view_insights(self, owner: Owner) -> str:
         """Return a summary of task completion progress across all pets."""

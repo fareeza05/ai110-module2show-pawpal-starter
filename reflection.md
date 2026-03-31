@@ -61,6 +61,16 @@ My initial UML design includes the following classes:
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+**Tradeoff: overlap detection uses scheduled start time + duration, not real-time tracking**
+
+The `detect_conflicts` method flags two tasks as conflicting if one starts before the previous one ends — based purely on `time_of_day` and `duration_minutes` as entered by the user. It does not track how long a task actually takes in practice, account for travel time between tasks, or update dynamically if a task runs over.
+
+A more accurate system would record actual start/end timestamps per task and recompute conflicts in real time as tasks are completed. However, that would require persistent state across sessions, a clock integration, and significantly more complexity.
+
+For a pet care planning app, the current approach is a reasonable tradeoff: the goal is to help an owner spot obviously overlapping tasks at planning time (e.g., a 30-minute walk and a vet medication both scheduled at 7:00 AM), not to act as a real-time task monitor. The simplicity keeps the data model clean and the conflict logic easy to understand and test.
+
+**AI suggestion reviewed:** A Pythonic rewrite using `itertools.combinations` was considered — it would eliminate the nested loop in favor of `for a, b in combinations(tagged, 2)`. This was rejected because it removes the `break` early-exit: since tasks are sorted by start time, once task B starts after task A ends, all further pairs with A are guaranteed non-overlapping. `itertools.combinations` has no mechanism to short-circuit, so it checks every pair regardless. The current nested loop is kept because the `break` makes it faster on longer task lists, even if it is slightly more code to read.
+
 ---
 
 ## 3. AI Collaboration
